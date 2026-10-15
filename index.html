@@ -16,7 +16,7 @@ button:disabled{background:#444}input{width:100%;padding:10px;margin:4px 0;box-s
 const SVC='6e400001-b5a3-f393-e0a9-e50e24dcca9e',CHR='6e400002-b5a3-f393-e0a9-e50e24dcca9e';
 const $=id=>document.getElementById(id),log=t=>{$('log').textContent=t+'\n'+$('log').textContent.slice(0,600)};
 let ch=null,q=Promise.resolve(),hist=[];
-$('key').value=localStorage.k||'';$('model').value=localStorage.m||'gemini-2.5-flash';
+$('key').value=localStorage.k||'';$('model').value=localStorage.m||'gemini-flash-latest';
 const send=c=>{if(ch)q=q.then(()=>ch.writeValue(new TextEncoder().encode(c))).catch(e=>log('BLE: '+e.message))};
 $('bt').onclick=async()=>{try{
  const d=await navigator.bluetooth.requestDevice({filters:[{namePrefix:'Ray'}],optionalServices:[SVC]});
@@ -39,8 +39,14 @@ $('talk').onclick=()=>{
 async function answer(said){
  hist.push({role:'user',parts:[{text:said}]});hist=hist.slice(-8);
  const body={systemInstruction:{parts:[{text:'Você é a Ray, um robozinho fofo e simpático. Responda em português do Brasil, em no máximo 2 frases curtas, sem emojis. Comece sempre com uma tag de humor entre colchetes: [feliz], [normal], [triste], [brava], [surpresa], [amor] ou [cansada].'}]},contents:hist};
- const res=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+$('model').value+':generateContent?key='+$('key').value,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
- const j=await res.json();if(!res.ok)throw new Error(j.error?.message||res.status);
+ let res,j;
+ for(let i=0;i<4;i++){
+  res=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+$('model').value+':generateContent?key='+$('key').value,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  j=await res.json();
+  if(res.ok||![429,500,503].includes(res.status))break;
+  log('IA ocupada, tentando de novo...');await new Promise(r=>setTimeout(r,1500*(i+1)));
+ }
+ if(!res.ok)throw new Error(j.error?.message||res.status);
  let t=j.candidates[0].content.parts.map(p=>p.text).join('');
  hist.push({role:'model',parts:[{text:t}]});
  const m=t.match(/^\s*\[(\w+)\]\s*/);if(m){send(m[1].toLowerCase());t=t.slice(m[0].length)}
