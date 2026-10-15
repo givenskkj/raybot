@@ -1,0 +1,54 @@
+<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ray</title>
+<style>body{font-family:system-ui;background:#111;color:#eee;margin:0 auto;padding:16px;max-width:480px}
+button{width:100%;padding:16px;margin:8px 0;font-size:18px;border:0;border-radius:12px;background:#3b82f6;color:#fff}
+button:disabled{background:#444}input{width:100%;padding:10px;margin:4px 0;box-sizing:border-box;border-radius:8px;border:1px solid #444;background:#222;color:#eee}
+#log{white-space:pre-wrap;font-size:14px;color:#aaa;min-height:80px;margin-top:12px}</style>
+<h2>Ray</h2>
+<button id=bt>1. Conectar na Ray</button>
+<button id=talk disabled>2. Falar com a Ray</button>
+<details><summary>Configurações</summary>
+<input id=key type=password placeholder="Chave da API Gemini">
+<input id=model placeholder="Modelo">
+</details>
+<div id=log></div>
+<script>
+const SVC='6e400001-b5a3-f393-e0a9-e50e24dcca9e',CHR='6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+const $=id=>document.getElementById(id),log=t=>{$('log').textContent=t+'\n'+$('log').textContent.slice(0,600)};
+let ch=null,q=Promise.resolve(),hist=[];
+$('key').value=localStorage.k||'';$('model').value=localStorage.m||'gemini-2.5-flash';
+const send=c=>{if(ch)q=q.then(()=>ch.writeValue(new TextEncoder().encode(c))).catch(e=>log('BLE: '+e.message))};
+$('bt').onclick=async()=>{try{
+ const d=await navigator.bluetooth.requestDevice({filters:[{namePrefix:'Ray'}],optionalServices:[SVC]});
+ d.addEventListener('gattserverdisconnected',()=>{ch=null;$('talk').disabled=true;log('Ray desconectada')});
+ const s=await d.gatt.connect();ch=await(await s.getPrimaryService(SVC)).getCharacteristic(CHR);
+ $('talk').disabled=false;log('Conectada na Ray!');send('feliz');
+}catch(e){log('Erro: '+e.message)}};
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+$('talk').onclick=()=>{
+ if(!SR)return log('Use o Chrome no Android');
+ if(!$('key').value)return log('Coloque a chave Gemini em Configurações');
+ localStorage.k=$('key').value;localStorage.m=$('model').value;
+ const r=new SR();r.lang='pt-BR';
+ r.onstart=()=>{send('ouvindo');log('Ouvindo...')};
+ r.onerror=e=>{send('parar');log('Voz: '+e.error)};
+ r.onresult=async e=>{const said=e.results[0][0].transcript;log('Você: '+said);send('pensando');
+  try{await answer(said)}catch(err){send('parar');log('Erro IA: '+err.message)}};
+ r.start();
+};
+async function answer(said){
+ hist.push({role:'user',parts:[{text:said}]});hist=hist.slice(-8);
+ const body={systemInstruction:{parts:[{text:'Você é a Ray, um robozinho fofo e simpático. Responda em português do Brasil, em no máximo 2 frases curtas, sem emojis. Comece sempre com uma tag de humor entre colchetes: [feliz], [normal], [triste], [brava], [surpresa], [amor] ou [cansada].'}]},contents:hist};
+ const res=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+$('model').value+':generateContent?key='+$('key').value,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+ const j=await res.json();if(!res.ok)throw new Error(j.error?.message||res.status);
+ let t=j.candidates[0].content.parts.map(p=>p.text).join('');
+ hist.push({role:'model',parts:[{text:t}]});
+ const m=t.match(/^\s*\[(\w+)\]\s*/);if(m){send(m[1].toLowerCase());t=t.slice(m[0].length)}
+ log('Ray: '+t);speak(t);
+}
+function speak(t){
+ const u=new SpeechSynthesisUtterance(t),vs=speechSynthesis.getVoices().filter(v=>v.lang==='pt-BR');
+ u.lang='pt-BR';u.voice=vs.find(v=>/google/i.test(v.name))||vs[0]||null;
+ u.onstart=()=>send('falando');u.onend=()=>send('parar');speechSynthesis.speak(u);
+}
+</script></html>
